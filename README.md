@@ -30,7 +30,7 @@ config = Config(
 )
 
 server = Server(config)
-server.add_worker(SendEmailWorker)
+server.add_worker(SendEmailWorker()) # i.e. Performable instance
 
 asyncio.run(server.start())
 ```
