@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.6 - 2026-05-20
+
+### Changed
+- All Redis operations extracted into a new internal `Store` class (`rqueue/store.py`)
+- Redis key names (`rqueue:queue:*`, `rqueue:stats:*`) are now centralized in `Store`
+- `Consumer` and `Client` no longer interact with Redis directly — all calls go through `Store`
+- `asyncio.to_thread` wrapping for blocking Redis calls moved from `Consumer` into `Store`
+
+---
+
 ## 0.2.5 - 2026-05-20
 
 ### Changed

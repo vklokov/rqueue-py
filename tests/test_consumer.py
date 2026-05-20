@@ -6,6 +6,7 @@ from redis.exceptions import RedisError
 
 from rqueue.consumer import Consumer
 from rqueue.config import Config
+from rqueue.store import Store
 
 
 @pytest.fixture
@@ -20,13 +21,18 @@ def mock_config():
 
 
 @pytest.fixture
-def mock_redis():
-    return MagicMock()
+def mock_store():
+    store = MagicMock(spec=Store)
+    store.pop = AsyncMock(return_value=None)
+    store.ping_async = AsyncMock()
+    store.increment_processed = AsyncMock()
+    store.increment_failed = AsyncMock()
+    return store
 
 
 @pytest.fixture
-def consumer(mock_redis, mock_config):
-    return Consumer(redis=mock_redis, config=mock_config, workers={})
+def consumer(mock_store, mock_config):
+    return Consumer(store=mock_store, config=mock_config, workers={})
 
 
 # --- is_ok ---
@@ -55,16 +61,16 @@ def test_last_ping_format(consumer):
 # --- _ping ---
 
 
-async def test_ping_updates_heartbeat_on_success(consumer, mock_redis):
+async def test_ping_updates_heartbeat_on_success(consumer, mock_store):
     before = consumer._last_heartbeat
-    mock_redis.ping = MagicMock(return_value=True)
     await consumer._ping()
     assert consumer._last_heartbeat > before
+    mock_store.ping_async.assert_awaited_once()
 
 
-async def test_ping_logs_error_and_keeps_heartbeat_on_redis_error(consumer, mock_redis):
+async def test_ping_logs_error_and_keeps_heartbeat_on_redis_error(consumer, mock_store):
     before = consumer._last_heartbeat
-    mock_redis.ping = MagicMock(side_effect=RedisError("connection refused"))
+    mock_store.ping_async.side_effect = RedisError("connection refused")
     await consumer._ping()
     assert consumer._last_heartbeat == before
     consumer.logger.error.assert_called_once()
@@ -82,6 +88,28 @@ async def test_run_job_calls_worker_perform(consumer):
     await consumer._run_job({"jid": "abc", "worker": "MyWorker", "payload": {"x": 1}})
 
     worker.perform.assert_awaited_once_with({"x": 1})
+
+
+async def test_run_job_increments_processed_on_success(consumer, mock_store):
+    worker = MagicMock()
+    worker.perform = AsyncMock()
+    consumer._workers = {"MyWorker": worker}
+
+    await consumer._semaphore.acquire()
+    await consumer._run_job({"jid": "abc", "worker": "MyWorker", "payload": {}})
+
+    mock_store.increment_processed.assert_awaited_once()
+
+
+async def test_run_job_increments_failed_on_error(consumer, mock_store):
+    worker = MagicMock()
+    worker.perform = AsyncMock(side_effect=RuntimeError("boom"))
+    consumer._workers = {"MyWorker": worker}
+
+    await consumer._semaphore.acquire()
+    await consumer._run_job({"jid": "abc", "worker": "MyWorker", "payload": {}})
+
+    mock_store.increment_failed.assert_awaited_once()
 
 
 async def test_run_job_logs_start_and_done(consumer):

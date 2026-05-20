@@ -1,23 +1,22 @@
 import asyncio
 import json
-from typing import cast
 from datetime import datetime, timezone
 
-from redis import Redis
 from redis.exceptions import RedisError
 
 from rqueue.schemas import Job, Performable
 from rqueue.config import Config
+from rqueue.store import Store
 
 
 class Consumer:
     def __init__(
         self,
-        redis: Redis,
+        store: Store,
         config: Config,
         workers: dict[str, Performable],
     ):
-        self._redis = redis
+        self._store = store
         self.config = config
         self.logger = config.logger
         self._semaphore = asyncio.Semaphore(config.concurrency)
@@ -29,30 +28,21 @@ class Consumer:
             await self._semaphore.acquire()
 
             try:
-                job = cast(
-                    tuple[str | bytes, str | bytes] | None,
-                    await asyncio.to_thread(
-                        self._redis.blpop,
-                        self.config.queue(),
-                        timeout=self.config.redis_ping_timeout,
-                    ),
-                )
+                raw = await self._store.pop(timeout=self.config.redis_ping_timeout)
             except RedisError as err:
                 self._semaphore.release()
                 self.logger.error(
                     "[RQueueServer] redis error", extra={"error": str(err)}
                 )
-
                 await asyncio.sleep(self.config.redis_reconnect_delay)
                 continue
 
             await self._ping()
 
-            if not job:
+            if raw is None:
                 self._semaphore.release()
                 continue
 
-            _, raw = job
             try:
                 payload = json.loads(raw)
                 asyncio.create_task(self._run_job(payload))
@@ -71,15 +61,13 @@ class Consumer:
                 raise RuntimeError(f"worker not found: {job.worker}")
 
             self.logger.info(f"[RqueueServer] jid={job.jid} started")
-
             await worker.perform(job.payload)
-
             self.logger.info(f"[RqueueServer] jid={job.jid} done")
-            await asyncio.to_thread(self._redis.incr, "rqueue:stats:processed")
+            await self._store.increment_processed()
 
         except Exception as err:
             self.logger.error("[RQueueServer] error", extra={"error": str(err)})
-            await asyncio.to_thread(self._redis.incr, "rqueue:stats:failed")
+            await self._store.increment_failed()
         finally:
             self._semaphore.release()
 
@@ -94,7 +82,7 @@ class Consumer:
 
     async def _ping(self):
         try:
-            await asyncio.to_thread(self._redis.ping)
+            await self._store.ping_async()
             self._last_heartbeat = datetime.now(timezone.utc)
         except RedisError as e:
             self.logger.error(

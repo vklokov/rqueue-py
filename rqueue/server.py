@@ -4,11 +4,12 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import humanize
-from redis import Redis
+from redis.exceptions import RedisError
 
 from rqueue.healthcheck import Healthchecker
 from rqueue.config import Config
 from rqueue.consumer import Consumer
+from rqueue.store import Store
 from rqueue.schemas import Status, Performable
 
 
@@ -16,7 +17,7 @@ class Server:
     def __init__(self, config: Config):
         self.config = config
         self.logger = config.logger
-        self._redis = Redis.from_url(config.redis_url)
+        self._store = Store(config.redis_url, config._queue)
         self._workers: dict[str, Performable] = {}
         self._started_at: Optional[datetime] = None
         self._consumer: Optional[Consumer] = None
@@ -30,8 +31,13 @@ class Server:
                 "No workers registered. Register them with add_worker() before starting the server."
             )
 
+        try:
+            self._store.ping()
+        except RedisError as e:
+            raise RuntimeError(f"Redis connection failed: {e}") from e
+
         self._consumer = Consumer(
-            redis=self._redis,
+            store=self._store,
             config=self.config,
             workers=self._workers,
         )
@@ -79,7 +85,7 @@ class Server:
 
         await asyncio.gather(*pending, return_exceptions=True)
 
-        self._redis.close()
+        self._store.close()
 
     def uptime(self) -> str:
         if not self._started_at:
