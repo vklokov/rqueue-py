@@ -13,7 +13,7 @@ from rqueue.store import Store
 def mock_config():
     config = MagicMock(spec=Config)
     config.concurrency = 1
-    config.queue = "rqueue:default"
+    config.queue.return_value = "rqueue:default"
     config.redis_ping_timeout = 30
     config.redis_reconnect_delay = 5
     config.logger = MagicMock()

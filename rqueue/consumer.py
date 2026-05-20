@@ -57,11 +57,13 @@ class Consumer:
         try:
             job = Job.model_validate(envelop)
             worker = self._workers.get(job.worker)
+
             if not worker:
                 raise RuntimeError(f"worker not found: {job.worker}")
 
             self.logger.info(f"[RqueueServer] jid={job.jid} started")
             await worker.perform(job.payload)
+
             self.logger.info(f"[RqueueServer] jid={job.jid} done")
             await self._store.increment_processed()
 

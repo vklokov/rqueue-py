@@ -1,9 +1,21 @@
 # Changelog
 
-## 0.2.7 - 2026-05-20
+## 0.2.8 - 2026-05-20
+
+### Changed
+- `Server.add_worker` and `Client.enqueue` now accept worker **instances** instead of classes — consistent API across both sides
+- Worker name is now resolved via `worker.__class__.__name__` instead of `worker.__name__`
+- Healthcheck rewritten with FastAPI + uvicorn, replacing the manual raw TCP/HTTP server
+  - `GET /live` — always returns 200, used as a liveness probe
+  - `GET /ready` — checks consumer heartbeat and Redis connectivity (`store.ping`); returns 503 with reason on failure
+- Job IDs switched from `uuid4` (stdlib) to `uuid7` (`uuid_extensions`), providing time-sortable identifiers
 
 ### Fixed
-- `config.queue` is now called as `config.queue()` when logging server startup, matching its callable interface
+- `config.queue` was logged as a bound method object; now called correctly as `config.queue()`
+
+### Dependencies
+- Added `fastapi>=0.136.1`
+- Added `uvicorn>=0.34.0`
 
 ---
 

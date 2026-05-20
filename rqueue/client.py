@@ -1,5 +1,6 @@
-import uuid
 from typing import Optional
+
+from uuid_extensions import uuid7str
 
 from rqueue.schemas import Job, Stats, Performable
 from rqueue.config import _default_queue
@@ -10,10 +11,10 @@ class Client:
     def __init__(self, redis_url: str, queue: Optional[str] = None):
         self._store = Store(redis_url, queue or _default_queue)
 
-    def enqueue(self, worker: type[Performable], payload: dict) -> str:
+    def enqueue(self, worker: Performable, payload: dict) -> str:
         job = Job(
-            jid=str(uuid.uuid4()),
-            worker=worker.__name__,
+            jid=uuid7str(),
+            worker=worker.__class__.__name__,
             payload=payload,
         )
         self._store.push(job)

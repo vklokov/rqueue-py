@@ -22,8 +22,8 @@ class Server:
         self._started_at: Optional[datetime] = None
         self._consumer: Optional[Consumer] = None
 
-    def add_worker(self, worker: type[Performable]):
-        self._workers[worker.__name__] = worker
+    def add_worker(self, worker: Performable):
+        self._workers[worker.__class__.__name__] = worker
 
     async def start(self):
         if self._workers_count == 0:
@@ -44,7 +44,7 @@ class Server:
 
         self._started_at = datetime.now(timezone.utc)
 
-        checker = Healthchecker(port=self.config.healthcheck_port, app=self)
+        checker = Healthchecker(port=self.config.healthcheck_port, app=self, store=self._store)
 
         tasks: list[asyncio.Task] = [
             asyncio.create_task(checker.run(), name="healthcheck"),
