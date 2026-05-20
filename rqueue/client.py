@@ -11,10 +11,10 @@ class Client:
     def __init__(self, redis_url: str, queue: Optional[str] = None):
         self._store = Store(redis_url, queue or _default_queue)
 
-    def enqueue(self, worker: Performable, payload: dict) -> str:
+    def enqueue(self, worker: type[Performable], payload: dict) -> str:
         job = Job(
             jid=uuid7str(),
-            worker=worker.__class__.__name__,
+            worker=worker.__name__,
             payload=payload,
         )
         self._store.push(job)

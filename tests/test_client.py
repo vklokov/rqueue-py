@@ -25,7 +25,7 @@ def client(mock_store):
 
 
 def test_enqueue_pushes_to_default_queue(client, mock_store):
-    client.enqueue(MyWorker(), {})
+    client.enqueue(MyWorker, {})
     job = mock_store.push.call_args[0][0]
     assert job.worker == MyWorker.__name__
 
@@ -43,19 +43,19 @@ def test_enqueue_uses_default_queue():
 
 
 def test_enqueue_returns_jid(client, mock_store):
-    jid = client.enqueue(MyWorker(), {"key": "value"})
+    jid = client.enqueue(MyWorker, {"key": "value"})
     assert isinstance(jid, str)
     assert len(jid) > 0
 
 
 def test_enqueue_jid_matches_pushed_job(client, mock_store):
-    jid = client.enqueue(MyWorker(), {"key": "value"})
+    jid = client.enqueue(MyWorker, {"key": "value"})
     job = mock_store.push.call_args[0][0]
     assert job.jid == jid
 
 
 def test_enqueue_serializes_worker_and_payload(client, mock_store):
-    client.enqueue(MyWorker(), {"key": "value"})
+    client.enqueue(MyWorker, {"key": "value"})
     job = mock_store.push.call_args[0][0]
     assert job.worker == MyWorker.__name__
     assert job.payload == {"key": "value"}
@@ -72,8 +72,8 @@ def test_stats_delegates_to_store(client, mock_store):
 
 
 def test_enqueue_generates_unique_jids(client, mock_store):
-    jid1 = client.enqueue(MyWorker(), {})
-    jid2 = client.enqueue(MyWorker(), {})
+    jid1 = client.enqueue(MyWorker, {})
+    jid2 = client.enqueue(MyWorker, {})
     assert jid1 != jid2
 
 

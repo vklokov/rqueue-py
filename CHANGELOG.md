@@ -3,8 +3,8 @@
 ## 0.2.8 - 2026-05-20
 
 ### Changed
-- `Server.add_worker` and `Client.enqueue` now accept worker **instances** instead of classes — consistent API across both sides
-- Worker name is now resolved via `worker.__class__.__name__` instead of `worker.__name__`
+- `Server.add_worker` now accepts a worker **instance** (`Performable`) — the same instance is reused across all jobs of that type
+- `Client.enqueue` accepts a worker **class** (`type[Performable]`) — no instantiation cost at enqueue time, only the class name is needed to build the job
 - Healthcheck rewritten with FastAPI + uvicorn, replacing the manual raw TCP/HTTP server
   - `GET /live` — always returns 200, used as a liveness probe
   - `GET /ready` — checks consumer heartbeat and Redis connectivity (`store.ping`); returns 503 with reason on failure
