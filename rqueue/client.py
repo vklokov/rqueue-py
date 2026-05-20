@@ -1,16 +1,14 @@
-from typing import cast, Optional
-
 import uuid
-from redis import Redis
+from typing import Optional
 
 from rqueue.schemas import Job, Stats, Performable
-from rqueue.config import Config, _default_queue
+from rqueue.config import _default_queue
+from rqueue.store import Store
 
 
 class Client:
     def __init__(self, redis_url: str, queue: Optional[str] = None):
-        self._redis = Redis.from_url(redis_url)
-        self._queue = Config._rqueue_name(queue or _default_queue)
+        self._store = Store(redis_url, queue or _default_queue)
 
     def enqueue(self, worker: type[Performable], payload: dict) -> str:
         job = Job(
@@ -18,26 +16,17 @@ class Client:
             worker=worker.__name__,
             payload=payload,
         )
-
-        self._redis.rpush(self._queue, job.model_dump_json())
+        self._store.push(job)
         return job.jid
 
     def pending(self) -> list[Job]:
-        """Returns all jobs waiting in the queue without consuming them."""
-        raw_jobs = cast(list[bytes], self._redis.lrange(self._queue, 0, -1))
-        return [Job.model_validate_json(raw) for raw in raw_jobs]
+        return self._store.pending()
 
     def stats(self) -> Stats:
-        """Returns cumulative processed and failed job counters."""
-        processed = cast(bytes | None, self._redis.get("rqueue:stats:processed"))
-        failed = cast(bytes | None, self._redis.get("rqueue:stats:failed"))
-        return Stats(
-            processed=int(processed) if processed else 0,
-            failed=int(failed) if failed else 0,
-        )
+        return self._store.stats()
 
     def close(self):
-        self._redis.close()
+        self._store.close()
 
     def __enter__(self):
         return self

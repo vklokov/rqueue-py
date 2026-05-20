@@ -1,9 +1,10 @@
 import json
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from rqueue.client import Client
-from rqueue.config import Config, _default_queue
+from rqueue.config import _default_queue
+from rqueue.store import Store
 
 
 class MyWorker:
@@ -12,97 +13,85 @@ class MyWorker:
 
 
 @pytest.fixture
-def mock_redis():
-    with patch("rqueue.client.Redis") as MockRedis:
-        yield MockRedis.from_url.return_value
+def mock_store():
+    store = MagicMock(spec=Store)
+    store.pending.return_value = []
+    return store
 
 
-def make_client(mock_redis, queue=None):
-    with patch("rqueue.client.Redis") as MockRedis:
-        MockRedis.from_url.return_value = mock_redis
-        return Client("redis://localhost:6379", queue=queue)
+@pytest.fixture
+def client(mock_store):
+    with patch("rqueue.client.Store", return_value=mock_store):
+        return Client("redis://localhost:6379")
 
 
-def test_enqueue_pushes_to_default_queue(mock_redis):
-    client = make_client(mock_redis)
+def test_enqueue_pushes_to_default_queue(client, mock_store):
     client.enqueue(MyWorker, {})
-    queue_arg = mock_redis.rpush.call_args[0][0]
-    assert queue_arg == Config._rqueue_name(_default_queue)
+    job = mock_store.push.call_args[0][0]
+    assert job.worker == MyWorker.__name__
 
 
-def test_enqueue_pushes_to_custom_queue(mock_redis):
-    client = make_client(mock_redis, queue="custom")
-    client.enqueue(MyWorker, {})
-    queue_arg = mock_redis.rpush.call_args[0][0]
-    assert queue_arg == Config._rqueue_name("custom")
+def test_enqueue_pushes_to_custom_queue():
+    with patch("rqueue.client.Store") as MockStore:
+        Client("redis://localhost:6379", queue="custom")
+        MockStore.assert_called_once_with("redis://localhost:6379", "custom")
 
 
-def test_enqueue_returns_jid(mock_redis):
-    client = make_client(mock_redis)
+def test_enqueue_uses_default_queue():
+    with patch("rqueue.client.Store") as MockStore:
+        Client("redis://localhost:6379")
+        MockStore.assert_called_once_with("redis://localhost:6379", _default_queue)
+
+
+def test_enqueue_returns_jid(client, mock_store):
     jid = client.enqueue(MyWorker, {"key": "value"})
     assert isinstance(jid, str)
     assert len(jid) > 0
 
 
-def test_enqueue_jid_matches_pushed_payload(mock_redis):
-    client = make_client(mock_redis)
+def test_enqueue_jid_matches_pushed_job(client, mock_store):
     jid = client.enqueue(MyWorker, {"key": "value"})
-    raw = mock_redis.rpush.call_args[0][1]
-    pushed = json.loads(raw)
-    assert pushed["jid"] == jid
+    job = mock_store.push.call_args[0][0]
+    assert job.jid == jid
 
 
-def test_enqueue_serializes_worker_and_payload(mock_redis):
-    client = make_client(mock_redis)
+def test_enqueue_serializes_worker_and_payload(client, mock_store):
     client.enqueue(MyWorker, {"key": "value"})
-    raw = mock_redis.rpush.call_args[0][1]
-    pushed = json.loads(raw)
-    assert pushed["worker"] == MyWorker.__name__
-    assert pushed["payload"] == {"key": "value"}
+    job = mock_store.push.call_args[0][0]
+    assert job.worker == MyWorker.__name__
+    assert job.payload == {"key": "value"}
 
 
-def test_pending_returns_enqueued_jobs(mock_redis):
-    client = make_client(mock_redis)
-    jid = client.enqueue(MyWorker, {"key": "value"})
-    raw = mock_redis.rpush.call_args[0][1]
-    mock_redis.lrange.return_value = [raw]
-    jobs = client.pending()
-    assert len(jobs) == 1
-    assert jobs[0].jid == jid
-    assert jobs[0].worker == MyWorker.__name__
-    assert jobs[0].payload == {"key": "value"}
+def test_pending_delegates_to_store(client, mock_store):
+    client.pending()
+    mock_store.pending.assert_called_once()
 
 
-def test_pending_returns_empty_when_queue_is_empty(mock_redis):
-    client = make_client(mock_redis)
-    mock_redis.lrange.return_value = []
-    assert client.pending() == []
+def test_stats_delegates_to_store(client, mock_store):
+    client.stats()
+    mock_store.stats.assert_called_once()
 
 
-def test_enqueue_generates_unique_jids(mock_redis):
-    client = make_client(mock_redis)
+def test_enqueue_generates_unique_jids(client, mock_store):
     jid1 = client.enqueue(MyWorker, {})
     jid2 = client.enqueue(MyWorker, {})
     assert jid1 != jid2
 
 
-def test_close_closes_redis(mock_redis):
-    client = make_client(mock_redis)
+def test_close_closes_store(client, mock_store):
     client.close()
-    mock_redis.close.assert_called_once()
+    mock_store.close.assert_called_once()
 
 
-def test_context_manager_closes_redis_on_exit(mock_redis):
-    with patch("rqueue.client.Redis") as MockRedis:
-        MockRedis.from_url.return_value = mock_redis
+def test_context_manager_closes_store_on_exit(mock_store):
+    with patch("rqueue.client.Store", return_value=mock_store):
         with Client("redis://localhost:6379"):
             pass
-    mock_redis.close.assert_called_once()
+    mock_store.close.assert_called_once()
 
 
-def test_context_manager_closes_redis_on_exception(mock_redis):
-    with patch("rqueue.client.Redis") as MockRedis:
-        MockRedis.from_url.return_value = mock_redis
+def test_context_manager_closes_store_on_exception(mock_store):
+    with patch("rqueue.client.Store", return_value=mock_store):
         with pytest.raises(ValueError):
             with Client("redis://localhost:6379"):
                 raise ValueError("boom")
