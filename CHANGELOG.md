@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.7 - 2026-05-20
+
+### Fixed
+- `config.queue` is now called as `config.queue()` when logging server startup, matching its callable interface
+
+---
+
 ## 0.2.6 - 2026-05-20
 
 ### Changed

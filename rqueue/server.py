@@ -60,7 +60,7 @@ class Server:
         self.logger.info(
             "[RQueueServer] server starting...",
             extra={
-                "queue": self.config.queue,
+                "queue": self.config.queue(),
                 "concurrency": self.config.concurrency,
             },
         )
