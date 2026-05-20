@@ -99,4 +99,6 @@ Response:
 }
 ```
 
+
+
 Returns `200` when healthy, `500` when the Redis connection has been lost.
