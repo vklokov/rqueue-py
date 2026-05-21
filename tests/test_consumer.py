@@ -3,12 +3,10 @@ import pytest
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from redis.exceptions import RedisError
-
 from rqueue.consumer import Consumer
 from rqueue.config import Config
 from rqueue.schemas import Job
-from rqueue.store import Store
+from rqueue.store import Store, StoreError
 
 
 @pytest.fixture
@@ -73,7 +71,7 @@ async def test_ping_updates_heartbeat_on_success(consumer, mock_store):
 
 async def test_ping_logs_error_and_keeps_heartbeat_on_redis_error(consumer, mock_store):
     before = consumer._last_heartbeat
-    mock_store.ping_async.side_effect = RedisError("connection refused")
+    mock_store.ping_async.side_effect = StoreError("connection refused")
     await consumer._ping()
     assert consumer._last_heartbeat == before
     consumer.logger.error.assert_called_once()

@@ -1,10 +1,8 @@
 import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-from redis.exceptions import RedisError
-
 from rqueue.schemas import Observable
-from rqueue.store import Store
+from rqueue.store import Store, StoreError
 
 
 class Healthchecker:
@@ -27,7 +25,7 @@ class Healthchecker:
                 return JSONResponse(status_code=503, content={"status": "unhealthy"})
             try:
                 await self.store.ping_async()
-            except RedisError:
+            except StoreError:
                 return JSONResponse(status_code=503, content={"status": "redis unavailable"})
             return s.model_dump()
 

@@ -2,8 +2,13 @@ import asyncio
 from typing import cast
 
 from redis import Redis
+from redis.exceptions import RedisError
 
 from rqueue.schemas import Job, Stats
+
+
+class StoreError(Exception):
+    pass
 
 
 class Store:
@@ -20,44 +25,71 @@ class Store:
         self._queue = self.queue_key(queue)
 
     def ping(self) -> None:
-        self._redis.ping()
+        try:
+            self._redis.ping()
+        except RedisError as e:
+            raise StoreError(str(e)) from e
 
     def push(self, job: Job) -> None:
-        self._redis.rpush(self._queue, job.model_dump_json())
+        try:
+            self._redis.rpush(self._queue, job.model_dump_json())
+        except RedisError as e:
+            raise StoreError(str(e)) from e
 
     def pending(self) -> list[Job]:
-        raw_jobs = cast(list[bytes], self._redis.lrange(self._queue, 0, -1))
-        return [Job.model_validate_json(raw) for raw in raw_jobs]
+        try:
+            raw_jobs = cast(list[bytes], self._redis.lrange(self._queue, 0, -1))
+            return [Job.model_validate_json(raw) for raw in raw_jobs]
+        except RedisError as e:
+            raise StoreError(str(e)) from e
 
     def stats(self) -> Stats:
-        processed = cast(bytes | None, self._redis.get(self._PROCESSED_KEY))
-        failed = cast(bytes | None, self._redis.get(self._FAILED_KEY))
-        return Stats(
-            processed=int(processed) if processed else 0,
-            failed=int(failed) if failed else 0,
-        )
+        try:
+            processed = cast(bytes | None, self._redis.get(self._PROCESSED_KEY))
+            failed = cast(bytes | None, self._redis.get(self._FAILED_KEY))
+            return Stats(
+                processed=int(processed) if processed else 0,
+                failed=int(failed) if failed else 0,
+            )
+        except RedisError as e:
+            raise StoreError(str(e)) from e
 
     def close(self) -> None:
         self._redis.close()
 
     async def pop(self, timeout: int) -> bytes | None:
-        result = cast(
-            tuple[str | bytes, str | bytes] | None,
-            await asyncio.to_thread(self._redis.blpop, self._queue, timeout=timeout),
-        )
+        try:
+            result = cast(
+                tuple[str | bytes, str | bytes] | None,
+                await asyncio.to_thread(self._redis.blpop, self._queue, timeout=timeout),
+            )
+        except RedisError as e:
+            raise StoreError(str(e)) from e
         if result is None:
             return None
         _, raw = result
         return cast(bytes, raw)
 
     async def increment_processed(self) -> None:
-        await asyncio.to_thread(self._redis.incr, self._PROCESSED_KEY)
+        try:
+            await asyncio.to_thread(self._redis.incr, self._PROCESSED_KEY)
+        except RedisError as e:
+            raise StoreError(str(e)) from e
 
     async def increment_failed(self) -> None:
-        await asyncio.to_thread(self._redis.incr, self._FAILED_KEY)
+        try:
+            await asyncio.to_thread(self._redis.incr, self._FAILED_KEY)
+        except RedisError as e:
+            raise StoreError(str(e)) from e
 
-    async def push_async(self, job: "Job") -> None:
-        await asyncio.to_thread(self._redis.rpush, self._queue, job.model_dump_json())
+    async def push_async(self, job: Job) -> None:
+        try:
+            await asyncio.to_thread(self._redis.rpush, self._queue, job.model_dump_json())
+        except RedisError as e:
+            raise StoreError(str(e)) from e
 
     async def ping_async(self) -> None:
-        await asyncio.to_thread(self._redis.ping)
+        try:
+            await asyncio.to_thread(self._redis.ping)
+        except RedisError as e:
+            raise StoreError(str(e)) from e

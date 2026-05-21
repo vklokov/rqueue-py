@@ -2,11 +2,9 @@ import asyncio
 import json
 from datetime import datetime, timezone
 
-from redis.exceptions import RedisError
-
 from rqueue.schemas import Job, Performable
 from rqueue.config import Config
-from rqueue.store import Store
+from rqueue.store import Store, StoreError
 
 
 class Consumer:
@@ -30,7 +28,7 @@ class Consumer:
 
             try:
                 raw = await self._store.pop(timeout=self.config.redis_ping_timeout)
-            except RedisError as err:
+            except StoreError as err:
                 self._semaphore.release()
                 self.logger.error(
                     "[RQueueServer] redis error", extra={"error": str(err)}
@@ -103,7 +101,7 @@ class Consumer:
         try:
             await self._store.ping_async()
             self._last_heartbeat = datetime.now(timezone.utc)
-        except RedisError as e:
+        except StoreError as e:
             self.logger.error(
                 "[RQueueServer] redis ping failed", extra={"error": str(e)}
             )
