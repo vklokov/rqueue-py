@@ -2,11 +2,9 @@ import asyncio
 import json
 from datetime import datetime, timezone
 
-from redis.exceptions import RedisError
-
 from rqueue.schemas import Job, Performable
 from rqueue.config import Config
-from rqueue.store import Store
+from rqueue.store import Store, StoreError
 
 
 class Consumer:
@@ -22,6 +20,7 @@ class Consumer:
         self._semaphore = asyncio.Semaphore(config.concurrency)
         self._last_heartbeat = datetime.now(timezone.utc)
         self._workers = workers
+        self._retry_tasks: set[asyncio.Task] = set()
 
     async def consume(self):
         while True:
@@ -29,7 +28,7 @@ class Consumer:
 
             try:
                 raw = await self._store.pop(timeout=self.config.redis_ping_timeout)
-            except RedisError as err:
+            except StoreError as err:
                 self._semaphore.release()
                 self.logger.error(
                     "[RQueueServer] redis error", extra={"error": str(err)}
@@ -54,6 +53,7 @@ class Consumer:
                 )
 
     async def _run_job(self, envelop: dict):
+        job = None
         try:
             job = Job.model_validate(envelop)
             worker = self._workers.get(job.worker)
@@ -68,10 +68,25 @@ class Consumer:
             await self._store.increment_processed()
 
         except Exception as err:
-            self.logger.error("[RQueueServer] error", extra={"error": str(err)})
-            await self._store.increment_failed()
+            if job is not None and job.attempt < job.retry_count:
+                job = job.model_copy(update={"attempt": job.attempt + 1})
+                delay = job.backoff_coefficient ** job.attempt
+                self.logger.warning(
+                    f"[RQueueServer] jid={job.jid} failed, retrying ({job.attempt}/{job.retry_count}) in {delay:.1f}s",
+                    extra={"error": str(err)},
+                )
+                task = asyncio.create_task(self._retry_job(job, delay))
+                self._retry_tasks.add(task)
+                task.add_done_callback(self._retry_tasks.discard)
+            else:
+                self.logger.error("[RQueueServer] error", extra={"error": str(err)})
+                await self._store.increment_failed()
         finally:
             self._semaphore.release()
+
+    async def _retry_job(self, job: Job, delay: float) -> None:
+        await asyncio.sleep(delay)
+        await self._store.push_async(job)
 
     @property
     def is_ok(self) -> bool:
@@ -86,7 +101,7 @@ class Consumer:
         try:
             await self._store.ping_async()
             self._last_heartbeat = datetime.now(timezone.utc)
-        except RedisError as e:
+        except StoreError as e:
             self.logger.error(
                 "[RQueueServer] redis ping failed", extra={"error": str(e)}
             )

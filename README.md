@@ -47,9 +47,29 @@ client = Client(
 )
 
 jid = client.enqueue(SendEmailWorker, {"to": "user@example.com"})
+
+# with custom retry settings
+jid = client.enqueue(
+    SendEmailWorker,
+    {"to": "user@example.com"},
+    retry_count=3,
+    backoff_coefficient=2.0,
+)
 ```
 
 `enqueue` returns the job ID (`jid`) that can be used for tracing.
+
+#### Retries
+
+`retry_count` (default `1`) sets how many times a failed job is retried before being marked as permanently failed. `backoff_coefficient` (default `1.5`) controls the exponential delay between attempts:
+
+| Attempt | Delay |
+|---------|-------|
+| 1st retry | `backoff_coefficient ** 1` seconds |
+| 2nd retry | `backoff_coefficient ** 2` seconds |
+| … | … |
+
+With the defaults a job gets one retry after 1.5 seconds. Set `retry_count=0` to disable retries entirely.
 
 Queue names are raw identifiers (e.g. `"default"`, `"emails"`). The client constructs the full Redis key internally as `rqueue:queue:{name}`.
 

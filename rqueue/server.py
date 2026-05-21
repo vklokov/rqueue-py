@@ -4,12 +4,10 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import humanize
-from redis.exceptions import RedisError
-
 from rqueue.healthcheck import Healthchecker
 from rqueue.config import Config
 from rqueue.consumer import Consumer
-from rqueue.store import Store
+from rqueue.store import Store, StoreError
 from rqueue.schemas import Status, Performable
 
 
@@ -33,7 +31,7 @@ class Server:
 
         try:
             self._store.ping()
-        except RedisError as e:
+        except StoreError as e:
             raise RuntimeError(f"Redis connection failed: {e}") from e
 
         self._consumer = Consumer(
