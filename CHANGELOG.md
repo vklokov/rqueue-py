@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0 - 2026-05-21
+
+### Added
+- Retry mechanism for failed jobs
+  - `Client.enqueue` accepts `retry_count` (default: `1`) and `backoff_coefficient` (default: `1.5`)
+  - Both values are stored on the `Job` model and travel with the job through the queue
+  - On failure, the consumer re-enqueues the job with an exponential backoff delay (`backoff_coefficient ** attempt` seconds) until retries are exhausted
+  - Once all retries are exhausted the job is marked failed as before
+  - Jobs log a warning on each retry attempt and an error only when permanently failed
+
+---
+
 ## 0.2.8 - 2026-05-20
 
 ### Changed

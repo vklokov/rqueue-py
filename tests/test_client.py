@@ -94,3 +94,27 @@ def test_context_manager_closes_store_on_exception(mock_store):
         with pytest.raises(ValueError):
             with Client("redis://localhost:6379"):
                 raise ValueError("boom")
+
+
+def test_enqueue_uses_default_retry_count(client, mock_store):
+    client.enqueue(MyWorker, {})
+    job = mock_store.push.call_args[0][0]
+    assert job.retry_count == 1
+
+
+def test_enqueue_uses_default_backoff_coefficient(client, mock_store):
+    client.enqueue(MyWorker, {})
+    job = mock_store.push.call_args[0][0]
+    assert job.backoff_coefficient == 1.5
+
+
+def test_enqueue_stores_custom_retry_count(client, mock_store):
+    client.enqueue(MyWorker, {}, retry_count=3)
+    job = mock_store.push.call_args[0][0]
+    assert job.retry_count == 3
+
+
+def test_enqueue_stores_custom_backoff_coefficient(client, mock_store):
+    client.enqueue(MyWorker, {}, backoff_coefficient=2.0)
+    job = mock_store.push.call_args[0][0]
+    assert job.backoff_coefficient == 2.0

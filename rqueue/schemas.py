@@ -30,6 +30,9 @@ class Job(BaseModel):
     jid: str
     worker: str
     payload: dict
+    retry_count: int = 1
+    backoff_coefficient: float = 1.5
+    attempt: int = 0
 
 
 class Stats(BaseModel):

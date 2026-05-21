@@ -56,5 +56,8 @@ class Store:
     async def increment_failed(self) -> None:
         await asyncio.to_thread(self._redis.incr, self._FAILED_KEY)
 
+    async def push_async(self, job: "Job") -> None:
+        await asyncio.to_thread(self._redis.rpush, self._queue, job.model_dump_json())
+
     async def ping_async(self) -> None:
         await asyncio.to_thread(self._redis.ping)

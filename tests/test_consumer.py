@@ -1,11 +1,13 @@
+import asyncio
 import pytest
 from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from redis.exceptions import RedisError
 
 from rqueue.consumer import Consumer
 from rqueue.config import Config
+from rqueue.schemas import Job
 from rqueue.store import Store
 
 
@@ -25,6 +27,7 @@ def mock_store():
     store = MagicMock(spec=Store)
     store.pop = AsyncMock(return_value=None)
     store.ping_async = AsyncMock()
+    store.push_async = AsyncMock()
     store.increment_processed = AsyncMock()
     store.increment_failed = AsyncMock()
     return store
@@ -107,7 +110,7 @@ async def test_run_job_increments_failed_on_error(consumer, mock_store):
     consumer._workers = {"MyWorker": worker}
 
     await consumer._semaphore.acquire()
-    await consumer._run_job({"jid": "abc", "worker": "MyWorker", "payload": {}})
+    await consumer._run_job({"jid": "abc", "worker": "MyWorker", "payload": {}, "retry_count": 0})
 
     mock_store.increment_failed.assert_awaited_once()
 
@@ -125,7 +128,7 @@ async def test_run_job_logs_start_and_done(consumer):
 
 async def test_run_job_logs_error_when_worker_not_found(consumer):
     await consumer._semaphore.acquire()
-    await consumer._run_job({"jid": "abc", "worker": "Missing", "payload": {}})
+    await consumer._run_job({"jid": "abc", "worker": "Missing", "payload": {}, "retry_count": 0})
 
     consumer.logger.error.assert_called_once()
 
@@ -136,7 +139,7 @@ async def test_run_job_logs_error_when_perform_raises(consumer):
     consumer._workers = {"MyWorker": worker}
 
     await consumer._semaphore.acquire()
-    await consumer._run_job({"jid": "abc", "worker": "MyWorker", "payload": {}})
+    await consumer._run_job({"jid": "abc", "worker": "MyWorker", "payload": {}, "retry_count": 0})
 
     consumer.logger.error.assert_called_once()
 
@@ -155,5 +158,100 @@ async def test_run_job_releases_semaphore_on_success(consumer):
 async def test_run_job_releases_semaphore_on_error(consumer):
     await consumer._semaphore.acquire()
     assert consumer._semaphore._value == 0
-    await consumer._run_job({"jid": "abc", "worker": "Missing", "payload": {}})
+    await consumer._run_job({"jid": "abc", "worker": "Missing", "payload": {}, "retry_count": 0})
     assert consumer._semaphore._value == 1
+
+
+# --- retry ---
+
+
+async def test_run_job_retries_on_failure(consumer, mock_store):
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        worker = MagicMock()
+        worker.perform = AsyncMock(side_effect=RuntimeError("boom"))
+        consumer._workers = {"MyWorker": worker}
+
+        await consumer._semaphore.acquire()
+        await consumer._run_job({"jid": "abc", "worker": "MyWorker", "payload": {}, "retry_count": 1})
+
+        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        if tasks:
+            await asyncio.gather(*tasks)
+
+    mock_store.increment_failed.assert_not_called()
+    mock_store.push_async.assert_awaited_once()
+
+
+async def test_run_job_increments_attempt_on_retry(consumer, mock_store):
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        worker = MagicMock()
+        worker.perform = AsyncMock(side_effect=RuntimeError("boom"))
+        consumer._workers = {"MyWorker": worker}
+
+        await consumer._semaphore.acquire()
+        await consumer._run_job({"jid": "abc", "worker": "MyWorker", "payload": {}, "retry_count": 2})
+
+        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        if tasks:
+            await asyncio.gather(*tasks)
+
+    pushed_job = mock_store.push_async.call_args[0][0]
+    assert pushed_job.attempt == 1
+
+
+async def test_run_job_increments_failed_after_exhausting_retries(consumer, mock_store):
+    worker = MagicMock()
+    worker.perform = AsyncMock(side_effect=RuntimeError("boom"))
+    consumer._workers = {"MyWorker": worker}
+
+    await consumer._semaphore.acquire()
+    await consumer._run_job({
+        "jid": "abc", "worker": "MyWorker", "payload": {},
+        "retry_count": 1, "attempt": 1,
+    })
+
+    mock_store.increment_failed.assert_awaited_once()
+    mock_store.push_async.assert_not_called()
+
+
+async def test_run_job_logs_warning_when_retrying(consumer):
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        worker = MagicMock()
+        worker.perform = AsyncMock(side_effect=RuntimeError("boom"))
+        consumer._workers = {"MyWorker": worker}
+
+        await consumer._semaphore.acquire()
+        await consumer._run_job({"jid": "abc", "worker": "MyWorker", "payload": {}, "retry_count": 1})
+
+    consumer.logger.warning.assert_called_once()
+    consumer.logger.error.assert_not_called()
+
+
+async def test_retry_job_sleeps_for_delay_then_pushes(consumer, mock_store):
+    with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        job = Job(jid="abc", worker="MyWorker", payload={})
+        await consumer._retry_job(job, 2.25)
+
+    mock_sleep.assert_awaited_once_with(2.25)
+    mock_store.push_async.assert_awaited_once_with(job)
+
+
+async def test_retry_job_uses_backoff_coefficient(consumer, mock_store):
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        worker = MagicMock()
+        worker.perform = AsyncMock(side_effect=RuntimeError("boom"))
+        consumer._workers = {"MyWorker": worker}
+
+        await consumer._semaphore.acquire()
+        await consumer._run_job({
+            "jid": "abc", "worker": "MyWorker", "payload": {},
+            "retry_count": 3, "backoff_coefficient": 2.0, "attempt": 1,
+        })
+
+        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        if tasks:
+            await asyncio.gather(*tasks)
+
+    pushed_job = mock_store.push_async.call_args[0][0]
+    assert pushed_job.attempt == 2
+    assert pushed_job.backoff_coefficient == 2.0
