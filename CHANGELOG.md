@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 - 2026-05-26
+
+### Added
+- Lifecycle hooks: `Server.on_startup` and `Server.on_shutdown` register async callbacks for server startup and shutdown
+  - Usable as decorators or called directly with a callable argument
+  - Startup hooks run after the Redis connection is verified, before the consumer starts
+  - Shutdown hooks run after the consumer is stopped, before the Redis connection is closed
+  - Exceptions in hooks are logged and do not crash the server
+
+---
+
 ## 0.3.0 - 2026-05-21
 
 ### Added
