@@ -1,5 +1,6 @@
 import asyncio
 import signal
+from collections.abc import Callable, Awaitable
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -10,6 +11,8 @@ from rqueue.consumer import Consumer
 from rqueue.store import Store, StoreError
 from rqueue.schemas import Status, Performable
 
+Hook = Callable[[], Awaitable[None]]
+
 
 class Server:
     def __init__(self, config: Config):
@@ -19,6 +22,16 @@ class Server:
         self._workers: dict[str, Performable] = {}
         self._started_at: Optional[datetime] = None
         self._consumer: Optional[Consumer] = None
+        self._startup_hooks: list[Hook] = []
+        self._shutdown_hooks: list[Hook] = []
+
+    def on_startup(self, fn: Hook) -> Hook:
+        self._startup_hooks.append(fn)
+        return fn
+
+    def on_shutdown(self, fn: Hook) -> Hook:
+        self._shutdown_hooks.append(fn)
+        return fn
 
     def add_worker(self, worker: Performable):
         self._workers[worker.__class__.__name__] = worker
@@ -39,6 +52,15 @@ class Server:
             config=self.config,
             workers=self._workers,
         )
+
+        for hook in self._startup_hooks:
+            try:
+                await hook()
+            except Exception as e:
+                self.logger.error(
+                    "[RQueueServer] startup hook failed",
+                    extra={"hook": getattr(hook, "__name__", repr(hook)), "error": str(e)},
+                )
 
         self._started_at = datetime.now(timezone.utc)
 
@@ -82,6 +104,15 @@ class Server:
             task.cancel()
 
         await asyncio.gather(*pending, return_exceptions=True)
+
+        for hook in self._shutdown_hooks:
+            try:
+                await hook()
+            except Exception as e:
+                self.logger.error(
+                    "[RQueueServer] shutdown hook failed",
+                    extra={"hook": getattr(hook, "__name__", repr(hook)), "error": str(e)},
+                )
 
         self._store.close()
 

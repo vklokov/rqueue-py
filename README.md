@@ -84,6 +84,31 @@ stats = client.stats()
 print(stats.processed, stats.failed)
 ```
 
+### Lifecycle hooks
+
+Register async callbacks to run on server startup and shutdown — useful for initialising shared resources like database pools.
+
+```python
+server = Server(config)
+
+@server.on_startup
+async def init_db():
+    app.db = await asyncpg.create_pool(DATABASE_URL)
+
+@server.on_shutdown
+async def close_db():
+    await app.db.close()
+```
+
+Both methods can also be called directly instead of used as decorators:
+
+```python
+server.on_startup(init_db)
+server.on_shutdown(close_db)
+```
+
+Startup hooks run after the Redis connection is verified, before the consumer starts. Shutdown hooks run after the consumer is stopped, before the Redis connection is closed. Exceptions in hooks are logged and do not crash the server.
+
 ### Custom logger
 
 Pass any object implementing the `Loggable` protocol to `Config`:
