@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2 - 2026-06-03
+
+### Added
+- Job execution duration is now tracked and logged (in seconds) on job completion
+
+---
+
 ## 0.3.1 - 2026-05-26
 
 ### Added
