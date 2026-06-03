@@ -77,6 +77,30 @@ async def test_ping_logs_error_and_keeps_heartbeat_on_redis_error(consumer, mock
     consumer.logger.error.assert_called_once()
 
 
+# --- _track_job ---
+
+
+async def test_track_job_logs_start_and_done_with_duration(consumer):
+    job = Job(jid="xyz", worker="MyWorker", payload={})
+
+    async with consumer._track_job(job):
+        pass
+
+    assert consumer.logger.info.call_count == 2
+    done_call = consumer.logger.info.call_args
+    assert "duration" in done_call.kwargs.get("extra", {})
+    assert isinstance(done_call.kwargs["extra"]["duration"], float)
+
+
+async def test_track_job_increments_processed(consumer, mock_store):
+    job = Job(jid="xyz", worker="MyWorker", payload={})
+
+    async with consumer._track_job(job):
+        pass
+
+    mock_store.increment_processed.assert_awaited_once()
+
+
 # --- _run_job ---
 
 

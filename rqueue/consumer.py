@@ -1,5 +1,6 @@
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from rqueue.schemas import Job, Performable
@@ -61,16 +62,13 @@ class Consumer:
             if not worker:
                 raise RuntimeError(f"worker not found: {job.worker}")
 
-            self.logger.info(f"[RqueueServer] jid={job.jid} started")
-            await worker.perform(job.payload)
-
-            self.logger.info(f"[RqueueServer] jid={job.jid} done")
-            await self._store.increment_processed()
+            async with self._track_job(job):
+                await worker.perform(job.payload)
 
         except Exception as err:
             if job is not None and job.attempt < job.retry_count:
                 job = job.model_copy(update={"attempt": job.attempt + 1})
-                delay = job.backoff_coefficient ** job.attempt
+                delay = job.backoff_coefficient**job.attempt
                 self.logger.warning(
                     f"[RQueueServer] jid={job.jid} failed, retrying ({job.attempt}/{job.retry_count}) in {delay:.1f}s",
                     extra={"error": str(err)},
@@ -83,6 +81,20 @@ class Consumer:
                 await self._store.increment_failed()
         finally:
             self._semaphore.release()
+
+    @asynccontextmanager
+    async def _track_job(self, job: Job):
+        """
+        Executor wrapper aimed to track job processing like duration and metrics
+        """
+        self.logger.info(f"[RqueueServer] jid={job.jid} started")
+        started_at = datetime.now(timezone.utc)
+        yield
+        duration = (datetime.now(timezone.utc) - started_at).total_seconds()
+        self.logger.info(
+            f"[RqueueServer] jid={job.jid} done", extra={"duration": duration}
+        )
+        await self._store.increment_processed()
 
     async def _retry_job(self, job: Job, delay: float) -> None:
         await asyncio.sleep(delay)
