@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.3 - 2026-06-19
+
+### Changed
+- Pinned `redis` to the 7.x line (`~=7.4`) to avoid an unintended upgrade to `redis` 8.x; previously `>=7.4.0` allowed any newer major version
+
+---
+
 ## 0.3.2 - 2026-06-03
 
 ### Added

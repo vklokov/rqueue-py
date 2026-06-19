@@ -242,7 +242,7 @@ wheels = [
 
 [[package]]
 name = "rqueue"
-version = "0.3.2"
+version = "0.3.3"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
@@ -265,7 +265,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.136.1" },
     { name = "humanize", specifier = ">=4.15.0" },
     { name = "pydantic", specifier = ">=2.13.4" },
-    { name = "redis", specifier = ">=7.4.0" },
+    { name = "redis", specifier = "~=7.4" },
     { name = "uuid7", specifier = ">=0.1.0" },
     { name = "uvicorn", specifier = ">=0.34.0" },
 ]
