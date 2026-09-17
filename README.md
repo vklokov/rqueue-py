@@ -1,5 +1,14 @@
 # rqueue-py
 
+> [!WARNING]
+> **This project is no longer maintained.**
+>
+> Development continues under a new name: **kickdown**, at
+> https://github.com/vklokov/kickdown
+>
+> No further releases, fixes or security updates will be published here.
+> The documentation below is kept for people still running `rqueue`.
+
 A Redis-backed background job queue for Python.
 
 ## Usage
