@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.4.0 - 2026-09-17
+
+### Changed
+- Rewritten around an arbitrary number of queues instead of a single configured queue
+  - Workers (`Performable`) now declare their own `queue` and `operation`; the server derives the set of polled queues from the registered workers automatically
+  - Queues are polled in round-robin order with equal frequency — no priority between queues at this stage
+  - Workers are keyed by `(queue, operation)`, so the same `operation` name can be reused safely across different queues
+- `Client.enqueue` now takes a single `Task` (carrying `queue`, `operation`, `params`, `jid`, `retry_count`) instead of a worker class and payload dict
+- `Client` is now fully async (`enqueue`, `pending`, `close`), and supports `async with` instead of a sync context manager
+- `Server` no longer takes a `Config` object; it's constructed directly with `redis_url` and `concurrency`
+- Retries no longer use exponential backoff (`backoff_coefficient` is gone from `Task`) — a failed task is retried after a short fixed delay until `retry_count` reaches `0`; the concurrency slot is released before that delay, so one failing task no longer stalls the whole consumer
+- On shutdown, the server now waits for in-flight tasks (including ones mid-retry) to finish before closing the Redis connection
+
+### Added
+- A default logger (plain `logging.Logger`, text output to stdout) on `Client` and `Server` — no custom logger interface/protocol; swap it by assigning `server.logger = ...` / `client.logger = ...`
+  - `Client` logs when a task is accepted (enqueued)
+  - `Server` logs process start/shutdown (with the polled queues and concurrency), each task's start/completion, retries, permanent failures, and unrecognized operations — all messages include the task's `jid`
+- `Server` always starts a small HTTP server (`web_port`, default `3030`) with `/live` and `/ready` for liveness/readiness probes; `/ready` checks Redis connectivity
+- `Client.stats(queue)` returns per-queue `processed`/`failed` counters (`Stats` model); the consumer increments them on task completion, permanent failure (retries exhausted), and unrecognized operations
+- `GET /admin` renders an HTML dashboard: total processed/failed counters, and a per-queue table of current pending task counts; optionally gated behind HTTP Basic Auth via `Server(admin_username=..., admin_password=...)` (no auth if either is left unset)
+- `Server.enqueue(task)` pushes a task using the server's own Redis connection, so workers/hooks can schedule tasks without a separate `Client`
+
+### Removed
+- The old `Loggable` protocol and the custom `Logger` wrapper class (replaced by the stdlib logger above)
+- `Server.uptime()` / `Status` and the `humanize` dependency
+
+---
+
 ## 0.3.3 - 2026-06-19
 
 ### Changed

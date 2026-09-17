@@ -1,15 +1,11 @@
-from .schemas import Performable, Loggable, Stats
-from .logger import Logger
-from .server import Server
 from .client import Client
-from .config import Config
+from .models import Performable, Stats, Task
+from .server import Server
 
 __all__ = [
-    "Performable",
-    "Loggable",
-    "Logger",
-    "Server",
     "Client",
-    "Config",
+    "Performable",
+    "Server",
     "Stats",
+    "Task",
 ]

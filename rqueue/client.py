@@ -1,45 +1,34 @@
-from typing import Optional
+import asyncio
 
-from uuid_extensions import uuid7str
-
-from rqueue.schemas import Job, Stats, Performable
-from rqueue.config import _default_queue
-from rqueue.store import Store
+from .log import default_logger
+from .models import Stats, Task
+from .store import Store
 
 
 class Client:
-    def __init__(self, redis_url: str, queue: Optional[str] = None):
-        self._store = Store(redis_url, queue or _default_queue)
+    def __init__(self, redis_url: str):
+        self._store = Store(redis_url)
+        self.logger = default_logger()
 
-    def enqueue(
-        self,
-        worker: type[Performable],
-        payload: dict,
-        *,
-        retry_count: int = 1,
-        backoff_coefficient: float = 1.5,
-    ) -> str:
-        job = Job(
-            jid=uuid7str(),
-            worker=worker.__name__,
-            payload=payload,
-            retry_count=retry_count,
-            backoff_coefficient=backoff_coefficient,
+    async def enqueue(self, task: Task) -> str:
+        await asyncio.to_thread(self._store.push, task)
+        self.logger.info(
+            f"jid={task.jid} accepted",
+            extra={"queue": task.queue, "operation": task.operation},
         )
-        self._store.push(job)
-        return job.jid
+        return task.jid
 
-    def pending(self) -> list[Job]:
-        return self._store.pending()
+    async def pending(self, queue: str) -> list[Task]:
+        return await asyncio.to_thread(self._store.pending, queue)
 
-    def stats(self) -> Stats:
-        return self._store.stats()
+    async def stats(self, queue: str) -> Stats:
+        return await asyncio.to_thread(self._store.stats, queue)
 
-    def close(self):
-        self._store.close()
+    async def close(self):
+        await asyncio.to_thread(self._store.close)
 
-    def __enter__(self):
+    async def __aenter__(self):
         return self
 
-    def __exit__(self, *args):
-        self.close()
+    async def __aexit__(self, *_exc_info):
+        await self.close()
